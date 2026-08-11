@@ -1,0 +1,46 @@
+name: Patch UI
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, '[ui-patched]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Patch main menu and chat
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+
+          # Main menu button + dedicated home screen.
+          if 'data-screen="home"' not in s:
+              s=s.replace('<nav class="nav"><button class="active" data-screen="game">OYUN</button>', '<nav class="nav"><button class="active" data-screen="home">ANA MENÜ</button><button data-screen="game">OYUN</button>')
+              home='''<section id="home" class="screen active"><div class="card" style="padding:48px 34px;text-align:center;min-height:330px;display:grid;place-items:center;background:radial-gradient(circle at 50% 0,#103a55 0,transparent 55%),linear-gradient(180deg,#081a29,#04101a)"><div><div style="font-size:14px;font-weight:900;color:#22d36b;letter-spacing:.18em">FUTBOL BİLGİNİ SINAYABİLİRSİN</div><h1 style="font-size:clamp(42px,7vw,76px);margin:12px 0 8px;letter-spacing:-.05em">FUTBOLCUYU <span style="color:#22d36b">BİL</span></h1><p class="muted" style="max-width:650px;margin:0 auto 26px;font-size:16px">Dünyanın en tanınmış futbolcularını gör, adını yaz, serini yükselt ve bu cihazdaki liderlik tablosunda zirveye çık.</p><button class="btn" id="homePlay" style="height:52px;padding:0 34px;font-size:16px">⚽ OYUNA BAŞLA</button></div></div><div class="sectionHead" style="margin-top:24px"><div><h2>OYUN MERKEZİ</h2><div class="muted">Ana menüden istediğin bölüme geç.</div></div></div><div class="modeGrid"><div class="card mode"><h3>🎯 KLASİK</h3><p>Futbolcuyu görselinden tahmin et ve zorluk ilerledikçe yükselsin.</p><button class="homeGo" data-screen="game">Oyna</button></div><div class="card mode"><h3>🏆 SIRALAMA</h3><p>Bu cihazdaki kayıtlı oyuncuların skorlarını karşılaştır.</p><button class="homeGo" data-screen="ranking">Sıralamayı Aç</button></div><div class="card mode"><h3>📖 NASIL OYNANIR?</h3><p>Kuralları ve oyun sistemini incele.</p><button class="homeGo" data-screen="modes">İncele</button></div></div></section>'''
+              s=s.replace('<main><section id="game"', '<main>'+home+'<section id="game"')
+              s=s.replace('<section id="game" class="screen active">','<section id="game" class="screen">')
+              s=s.replace("document.querySelectorAll('.nav button,[data-screen=\"game\"]')", "document.querySelectorAll('.nav button,[data-screen=\"game\"],[data-screen=\"home\"],[data-screen=\"ranking\"],[data-screen=\"modes\"]')")
+              s=s.replace("if(id==='ranking')renderLeaders()", "if(id==='ranking')renderLeaders(); if(id==='home')renderLeaders()")
+              s=s.replace("renderUser();if(me()){pool=shuffle(players.slice());next()}else{setTimeout(auth,300)}", "renderUser();document.getElementById('homePlay')?.addEventListener('click',()=>{if(!me())return auth();switchScreen('game');next()});document.querySelectorAll('.homeGo').forEach(b=>b.addEventListener('click',()=>switchScreen(b.dataset.screen)));if(me()){pool=shuffle(players.slice());switchScreen('home')}else{setTimeout(auth,300)}")
+
+          # Make the local chat reliable and visible; keep it local, never fake messages.
+          if 'id="localChat"' in s:
+              s=s.replace('</style>\n\n<style id="localChatStyles">', '#localChat{display:block!important}\n@media(max-width:1100px){.right{display:block!important}.grid{grid-template-columns:1fr}.right{order:3}.localChatMobile{display:block!important}}\n</style>\n\n<style id="localChatStyles">')
+          if 'function renderChat' not in s:
+              marker="function renderLeaders(){"
+              chat_js='''function renderChat(){const box=document.getElementById('chatMessages');if(!box)return;const msgs=JSON.parse(localStorage.getItem('futbolcuyuBilChat')||'[]');box.innerHTML=msgs.length?msgs.map(m=>`<div class="chatMsg"><b>${String(m.name).replace(/[<>]/g,'')}</b><time>${m.time}</time><div>${String(m.text).replace(/[<>]/g,'')}</div></div>`).join(''):'<div class="chatEmpty">Henüz mesaj yok. İlk mesajı sen yaz.</div>';box.scrollTop=box.scrollHeight}function sendChat(){if(!me())return auth();const input=document.getElementById('chatInput');const text=input.value.trim();if(!text)return;const msgs=JSON.parse(localStorage.getItem('futbolcuyuBilChat')||'[]');msgs.push({name:me().name,text,time:new Date().toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'})});localStorage.setItem('futbolcuyuBilChat',JSON.stringify(msgs.slice(-80)));input.value='';renderChat()}'''
+              s=s.replace(marker,chat_js+marker)
+              s=s.replace("document.getElementById('profileBtn').onclick=profile;", "document.getElementById('profileBtn').onclick=profile;document.getElementById('chatSend')?.addEventListener('click',sendChat);document.getElementById('chatInput')?.addEventListener('keydown',e=>{if(e.key==='Enter')sendChat()});renderChat();")
+          p.write_text(s,encoding='utf-8')
+          PY
+      - name: Commit UI patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git diff --cached --quiet || git commit -m "Fix main menu and local chat [ui-patched]"
+          git push
