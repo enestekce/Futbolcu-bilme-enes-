@@ -1,0 +1,36 @@
+name: Fix player image loading
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix-images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Add Wikipedia image fallback
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('index.html')
+          s = p.read_text(encoding='utf-8')
+          old = "img.onerror=()=>{img.style.display='none';fb.style.display='grid'};img.src=p[1];"
+          new = """img.onerror=async()=>{\n            try{\n              img.referrerPolicy='no-referrer';\n              const q=encodeURIComponent(p[0]+' footballer');\n              const r=await fetch('https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch='+q+'&gsrnamespace=0&gsrlimit=3&prop=pageimages&piprop=thumbnail&pithumbsize=900&format=json&origin=*');\n              const j=await r.json();\n              const pages=Object.values((j.query&&j.query.pages)||{});\n              const hit=pages.find(x=>x.thumbnail&&x.thumbnail.source);\n              if(hit){img.onload=()=>{fb.style.display='none';img.style.display='block'};img.src=hit.thumbnail.source;return}\n            }catch(e){}\n            img.style.display='none';fb.style.display='grid';\n          };img.referrerPolicy='no-referrer';img.src=p[1];"""
+          if old in s and 'Wikipedia image fallback' not in s:
+              s=s.replace(old,new,1)
+              p.write_text(s,encoding='utf-8')
+          PY
+
+      - name: Commit fix
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html
+          git diff --cached --quiet || git commit -m 'Fix player image fallback'
+          git push
