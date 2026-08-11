@@ -1,0 +1,45 @@
+name: Activate local chat
+
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+jobs:
+  add-chat:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Add local chat
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('index.html')
+          s = p.read_text(encoding='utf-8')
+
+          if 'id="localChat"' not in s:
+              marker = '<div class="card" style="margin-top:14px"><div class="sideTitle">ℹ️ HESAP</div>'
+              chat = '''<div class="card" style="margin-top:14px" id="localChat"><div class="sideTitle">💬 SOHBET <span class="badge">YEREL</span></div><div id="chatMessages" class="leader" style="height:180px;overflow:auto"></div><div style="padding:0 18px 16px;display:flex;gap:7px"><input id="chatInput" maxlength="120" placeholder="Bir şey yaz..." style="min-width:0;flex:1;background:#02090f;border:1px solid #1d3545;color:#fff;border-radius:9px;padding:11px 12px;outline:none"><button id="chatSend" class="btn" style="height:42px;padding:0 14px">Gönder</button></div></div>'''
+              if marker in s:
+                  s = s.replace(marker, chat + marker, 1)
+
+          css = '''\n<style id="localChatStyles">#chatMessages .chatMsg{padding:7px 0;border-bottom:1px solid #142431;font-size:12px}#chatMessages .chatMsg:last-child{border-bottom:0}.chatMsg b{color:#22d36b}.chatMsg time{float:right;color:#657685;font-size:10px}.chatEmpty{color:#71818e;font-size:12px;padding:10px 0}.chatInputRow{display:flex;gap:7px}</style>\n'''
+          if 'id="localChatStyles"' not in s:
+              s = s.replace('</head>', css + '</head>', 1)
+
+          js = '''\n<script id="localChatScript">\n(function(){\n  const KEY='futbolcuyuBilLocalChatV1';\n  const box=document.getElementById('chatMessages'), input=document.getElementById('chatInput'), send=document.getElementById('chatSend');\n  if(!box||!input||!send)return;\n  function read(){try{return JSON.parse(localStorage.getItem(KEY)||'[]')}catch(e){return[]}}\n  function draw(){const a=read();box.innerHTML=a.length?a.map(x=>`<div class="chatMsg"><b>${escapeHtml(x.name)}</b> <span>${escapeHtml(x.text)}</span><time>${x.time}</time></div>`).join(''):'<div class="chatEmpty">Henüz mesaj yok. İlk mesajı sen yaz 👋</div>';box.scrollTop=box.scrollHeight}\n  function escapeHtml(x){return String(x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}\n  function sendMsg(){const text=input.value.trim();if(!text)return;let name=(typeof me==='function'&&me())?me().name:'Oyuncu';let a=read();a.push({name,text,time:new Date().toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'})});if(a.length>80)a=a.slice(-80);localStorage.setItem(KEY,JSON.stringify(a));input.value='';draw();}\n  send.addEventListener('click',sendMsg);input.addEventListener('keydown',e=>{if(e.key==='Enter')sendMsg()});draw();\n})();\n</script>\n'''
+          if 'id="localChatScript"' not in s:
+              s = s.replace('</body>', js + '</body>', 1)
+
+          p.write_text(s, encoding='utf-8')
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git diff --cached --quiet || git commit -m "Add local player chat"
+          git push
