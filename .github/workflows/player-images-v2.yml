@@ -1,0 +1,75 @@
+name: Fix player image loading v2
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch image loader
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          start=s.index('function next(){')
+          end=s.index('function scoreFor', start)
+          new=r'''function next(){
+          if(!me())return auth();
+          hintsUsed=0;
+          document.getElementById('hints').innerHTML='<button class="hint" data-h="1">İPUCU 1 · -5</button><button class="hint" data-h="2">İPUCU 2 · -5</button><button class="hint" data-h="3">İPUCU 3 · -15</button>';
+          const p=pool[idx++%pool.length];
+          window.currentPlayer=p;
+          const img=document.getElementById('playerPhoto'),fb=document.getElementById('fallbackPlayer');
+          const mini=fb.querySelector('.playerNameMini');
+          mini.textContent=p[0];
+          fb.style.display='grid';
+          img.style.display='none';
+          img.onload=()=>{fb.style.display='none';img.style.display='block'};
+          img.onerror=()=>loadWikipediaPlayer(p[0],img,fb);
+          img.referrerPolicy='no-referrer';
+          img.src=p[1]+'?v=2';
+          document.getElementById('answer').value='';
+          const [d,w]=difficultyFor(me().total);
+          document.getElementById('difficulty').textContent=d;
+          document.getElementById('difficultyBar').style.width=w+'%';
+          document.getElementById('answer').focus();
+          }
+          async function loadWikipediaPlayer(name,img,fb){
+          try{
+            const controller=new AbortController();
+            const timer=setTimeout(()=>controller.abort(),5000);
+            const q=encodeURIComponent(name);
+            const r=await fetch('https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch='+q+'&gsrnamespace=0&gsrlimit=5&prop=pageimages&piprop=original|thumbnail&pithumbsize=1000&format=json&origin=*',{signal:controller.signal});
+            clearTimeout(timer);
+            const j=await r.json();
+            const pages=Object.values((j.query&&j.query.pages)||{});
+            const hit=pages.find(x=>x.original&&x.original.source)||pages.find(x=>x.thumbnail&&x.thumbnail.source);
+            if(hit){
+              const src=hit.original?.source||hit.thumbnail.source;
+              img.onload=()=>{fb.style.display='none';img.style.display='block'};
+              img.src=src;
+              return;
+            }
+          }catch(e){}
+          fb.style.display='grid';
+          img.style.display='none';
+          }
+          '''
+          s=s[:start]+new+'\n'+s[end:]
+          p.write_text(s,encoding='utf-8')
+          PY
+      - name: Commit fix
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html
+          git diff --cached --quiet || git commit -m 'Robust player image loader without changing difficulty'
+          git push
