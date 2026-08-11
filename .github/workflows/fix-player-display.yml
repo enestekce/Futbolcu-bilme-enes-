@@ -1,0 +1,53 @@
+name: Fix player display
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch player loading
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          # Keep the existing player pool and difficulty system. Only replace the display/loading routine.
+          pattern=r"function next\(\)\{.*?\n\}function scoreFor"
+          replacement="""async function next(){
+            if(!me())return auth();
+            hintsUsed=0;
+            document.getElementById('hints').innerHTML='<button class=\"hint\" data-h=\"1\">İPUCU 1 · -5</button><button class=\"hint\" data-h=\"2\">İPUCU 2 · -5</button><button class=\"hint\" data-h=\"3\">İPUCU 3 · -15</button>';
+            const p=pool[idx++%pool.length];window.currentPlayer=p;
+            const img=document.getElementById('playerPhoto'),fb=document.getElementById('fallbackPlayer');
+            img.onload=null;img.onerror=null;img.style.display='none';fb.style.display='grid';
+            fb.querySelector('.clubMini')?.style.setProperty('display','none','important');
+            document.getElementById('answer').value='';
+            const [d,w]=difficultyFor(me().total);document.getElementById('difficulty').textContent=d;document.getElementById('difficultyBar').style.width=w+'%';
+            try{
+              const q=encodeURIComponent(p[0]+' footballer');
+              const r=await fetch('https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch='+q+'&gsrnamespace=0&gsrlimit=5&prop=pageimages&piprop=thumbnail&pithumbsize=900&format=json&origin=*');
+              const j=await r.json();const pages=Object.values((j.query&&j.query.pages)||{});const hit=pages.find(x=>x.thumbnail&&x.thumbnail.source);
+              if(hit&&hit.thumbnail.source){img.onload=()=>{fb.style.display='none';img.style.display='block'};img.src=hit.thumbnail.source}
+              else{img.src=p[1];img.onload=()=>{fb.style.display='none';img.style.display='block'};img.onerror=()=>{img.style.display='none';fb.style.display='grid'}}
+            }catch(e){img.src=p[1];img.onload=()=>{fb.style.display='none';img.style.display='block'};img.onerror=()=>{img.style.display='none';fb.style.display='grid'}}
+            document.getElementById('answer').focus()
+          }function scoreFor"""
+          ns,n=re.subn(pattern,replacement,s,count=1,flags=re.S)
+          if n:
+            p.write_text(ns,encoding='utf-8')
+          else:
+            print('next() pattern not found; leaving file unchanged')
+          PY
+      - name: Commit
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html
+          git diff --cached --quiet || git commit -m 'Fix player image loading and hide fallback text'
+          git push
